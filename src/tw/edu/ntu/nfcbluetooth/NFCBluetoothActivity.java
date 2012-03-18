@@ -9,7 +9,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.UUID;
-
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
@@ -55,6 +54,9 @@ public class NFCBluetoothActivity extends Activity implements CreateNdefMessageC
     private String des_mac_address;
     private static final String NAME = "NFCBluetooth";
     private static final UUID MY_UUID = UUID.fromString("fa87c0d0-afac-11de-8a39-0800200c9a66");
+    private AcceptThread at;
+    private ConnectThread ct;
+    
     
     TextView tv;
     int BUFFER_SIZE = 65536;
@@ -120,50 +122,99 @@ public class NFCBluetoothActivity extends Activity implements CreateNdefMessageC
         mBTAdapter = (BluetoothAdapter) BluetoothAdapter.getDefaultAdapter();
         
         //server
-        new Thread(new Runnable() {
-			public void run() {
-				// TODO Auto-generated method stub
-				try {
-					BluetoothServerSocket sSocket = mBTAdapter.listenUsingRfcommWithServiceRecord(NAME, MY_UUID);
-					if(sSocket != null){
-						Message msg = new Message();
-						msg.obj = "Open\n";
-						handler.sendMessage(msg);
+        at = new AcceptThread();
+        at.start();
+        
+               
+    }
+    
+    private class AcceptThread extends Thread {
+  	    private final BluetoothServerSocket mmServerSocket;
+  	 
+  	    public AcceptThread() {
+  	        // Use a temporary object that is later assigned to mmServerSocket,
+  	        // because mmServerSocket is final
+  	        BluetoothServerSocket tmp = null;
+  	        try {
+  	            // MY_UUID is the app's UUID string, also used by the client code
+  	            tmp = mBTAdapter.listenUsingRfcommWithServiceRecord(NAME, MY_UUID);
+  	        } catch (IOException e) { }
+  	        mmServerSocket = tmp;
+  	        
+  	        Message msg = new Message();
+			msg.obj = "Start Listening \n";
+			handler.sendMessage(msg);
+
+  	    }
+  	 
+  	    public void run() {
+  	        BluetoothSocket client = null;
+  	        // Keep listening until exception occurs or a socket is returned
+  	        while (true) {
+  	            try {
+  	            	client = mmServerSocket.accept();
+  	            } catch (IOException e) {
+  	                break;
+  	            }
+  	            // If a connection was accepted
+  	            if (client != null) {
+  	                // Do work to manage the connection (in a separate thread)?
+  	            	//manageConnectedSocket(socket);
+  	            	
+  	            	Message msg3 = new Message();
+					msg3.obj = "client connect succeed";
+					handler.sendMessage(msg3);
+  	            	
+  	            	OutputStream stream =null;
+					try {
+						stream = client.getOutputStream();
+					} catch (IOException e1) {
+						// TODO Auto-generated catch block
+						e1.printStackTrace();
 					}
-					while (true) {
-						BluetoothSocket client = sSocket.accept();
-						Message msg = new Message();
-						msg.obj = ""+client.getRemoteDevice().getAddress()+" connected\n";
-						handler.sendMessage(msg);
-						
-		
-						OutputStream stream = client.getOutputStream();
-		                ContentResolver cr = NFCBluetoothActivity.this.getContentResolver();
-		                InputStream is = null;
-		                try {
-		                    is = cr.openInputStream(NFCBluetoothActivity.this.uri);
-		                } catch (FileNotFoundException e) {
-		                    Log.d(NFCBluetoothActivity.TAG, e.toString());
-		                }
-		                NFCBluetoothActivity.copyFile(is, stream);
-		                
-		               
+	                ContentResolver cr = NFCBluetoothActivity.this.getContentResolver();
+	                InputStream is = null;
+	                try {
+	                    is = cr.openInputStream(NFCBluetoothActivity.this.uri);
+	                } catch (FileNotFoundException e) {
+	                    Log.d(NFCBluetoothActivity.TAG, e.toString());
+	                }
+	                NFCBluetoothActivity.copyFile(is, stream);
+	                
+	               
+					try {
 						client.close();
+					} catch (IOException e1) {
+						// TODO Auto-generated catch block
+						e1.printStackTrace();
+					}
+					
+  	            	
+  	            	
+  	                try {
+						mmServerSocket.close();
 						Message msg2 = new Message();
 						msg2.obj = "socket to client close";
 						handler.sendMessage(msg2);
-										
-						
+					} catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
 					}
-				} catch (Exception e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-			}
-		}).start();
-        
-        
-    }
+  	                break;
+  	            }
+  	        }
+  	    }
+  	 
+  	    /** Will cancel the listening socket, and cause the thread to finish */
+  	    public void cancel() {
+  	        try {
+  	            mmServerSocket.close();
+  	        } catch (IOException e) { }
+  	    }
+  	}
+
+ 
+  	
     
     
     @Override
@@ -210,6 +261,15 @@ public class NFCBluetoothActivity extends Activity implements CreateNdefMessageC
         setIntent(intent);
     }
     
+    @Override
+    public void onPause() {
+        super.onPause();
+        
+        
+        //at.cancel();
+        //ct.cancel();
+        
+    }
     
     void processIntent(Intent intent) {      
     	Parcelable[] rawMsgs = intent
@@ -238,66 +298,119 @@ public class NFCBluetoothActivity extends Activity implements CreateNdefMessageC
   	
   	private void connectTransfer(String mac_address)
   	{
-  		new Thread(new Runnable() {
-		
-			public void run() {
-				
-				try {
-					for (int i = 0; i < 1; i++) {
-						long start, end;
-						Message msg = new Message();
-						msg.obj = "start to connect\n";
-						handler.sendMessage(msg);
+  		Message msg = new Message();
+		msg.obj = "start to connect\n";
+		handler.sendMessage(msg);
 
-						BluetoothSocket socket = mBTAdapter.getRemoteDevice(NFCBluetoothActivity.this.des_mac_address).
-													createRfcommSocketToServiceRecord(MY_UUID);
-						socket.connect();
-						start = System.currentTimeMillis();
-						
-						
-						final File f = new File(Environment.getExternalStorageDirectory() + "/"
-		                        + NFCBluetoothActivity.this.getPackageName() + "/wifip2pshared-" + System.currentTimeMillis()
-		                        + ".jpg");
-					
-						File dirs = new File(f.getParent());
-		                if (!dirs.exists())
-		                    dirs.mkdirs();
-		                f.createNewFile();
-	
-		                Log.d(NFCBluetoothActivity.TAG, "server: copying files " + f.toString());
-		                InputStream inputstream = socket.getInputStream();
-		                copyFile(inputstream, new FileOutputStream(f));
-		                
-		                end = System.currentTimeMillis();
-			            //be careful
-		                Message msg2 = new Message();
-						msg2.obj = "server socket close\n";
-						handler.sendMessage(msg2);
-		                
-						socket.close();
-						
-						Message msg3 = new Message();
-						Bundle data = new Bundle();
-						data.putString("type", "succeed");
-						data.putString("file_uri", f.getAbsolutePath());
-						msg3.setData(data);
-						handler.sendMessage(msg3);
-						
-						
-						// be careful
-						Thread.sleep(5000);
-					}
-				} catch (Exception e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-			}
-		}).start();
+  		ct =new ConnectThread(mBTAdapter.getRemoteDevice(mac_address));
   		
+  		ct.start();
   		
   	}
   
+  	
+  	
+  	private class ConnectThread extends Thread {
+  	    private final BluetoothSocket mmSocket;
+  	    private final BluetoothDevice mmDevice;
+  	 
+  	    public ConnectThread(BluetoothDevice device) {
+  	        // Use a temporary object that is later assigned to mmSocket,
+  	        // because mmSocket is final
+  	        BluetoothSocket tmp = null;
+  	        mmDevice = device;
+  	 
+  	        // Get a BluetoothSocket to connect with the given BluetoothDevice
+  	        try {
+  	            // MY_UUID is the app's UUID string, also used by the server code
+  	            tmp = device.createRfcommSocketToServiceRecord(MY_UUID);
+  	        } catch (IOException e) { }
+  	        mmSocket = tmp;
+  	    }
+  	 
+  	    public void run() {
+  	        // Cancel discovery because it will slow down the connection
+  	        mBTAdapter.cancelDiscovery();
+  	 
+  	        try {
+  	            // Connect the device through the socket. This will block
+  	            // until it succeeds or throws an exception
+  	            mmSocket.connect();
+  	        } catch (IOException connectException) {
+  	            // Unable to connect; close the socket and get out
+  	            try {
+  	                mmSocket.close();
+  	            } catch (IOException closeException) { }
+  	            return;
+  	        }
+  	 
+  	        // Do work to manage the connection (in a separate thread)
+  	        //manageConnectedSocket(mmSocket);
+  	        
+  	        Message msg3 = new Message();
+  	        msg3.obj = "client connect to server \n";
+  	        handler.sendMessage(msg3);
+  	        
+	  	     final File f = new File(Environment.getExternalStorageDirectory() + "/"
+	                  + NFCBluetoothActivity.this.getPackageName() + "/wifip2pshared-" + System.currentTimeMillis()
+	                  + ".jpg");
+			
+			 File dirs = new File(f.getParent());
+			 
+	         if (!dirs.exists())
+	              dirs.mkdirs();
+	         try {
+					f.createNewFile();
+				} catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+			 }
+	
+	          Log.d(NFCBluetoothActivity.TAG, "server: copying files " + f.toString());
+	          InputStream inputstream =null;
+			  try {
+				  inputstream = mmSocket.getInputStream();
+			  } catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			  }
+	          try {
+				copyFile(inputstream, new FileOutputStream(f));
+			  } catch (FileNotFoundException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			  }
+	          
+	          
+	          Message viewImage = new Message();
+			  Bundle data = new Bundle();
+			  data.putString("type", "succeed");
+			  data.putString("file_uri", f.getAbsolutePath());
+				
+			  viewImage.setData(data);
+			  handler.sendMessage(viewImage);
+	          
+	          //be careful
+	          Message msg2 = new Message();
+			  msg2.obj = "server socket close\n";
+			  handler.sendMessage(msg2);
+	  	      
+			  
+  	      
+  	        
+  	        
+  	    }
+  	 
+  	    /** Will cancel an in-progress connection, and close the socket */
+  	    public void cancel() {
+  	        try {
+  	            mmSocket.close();
+  	        } catch (IOException e) { }
+  	    }
+  	}
     
+  	
+  	
     public NdefMessage createNdefMessage(NfcEvent event) {
 		// Create an NDEF message with device Bluetooth MAC address
 
